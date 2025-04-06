@@ -13,7 +13,7 @@ param (
     
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$LicenseSku,
+    [string[]]$LicenseSku,
 
     [Parameter(ParameterSetName = "ManualPassword")]
     [ValidateNotNullOrEmpty()]
@@ -27,7 +27,9 @@ param (
     [int]$AutoPasswordLength = 12,
 
     [Parameter(ParameterSetName = "AutoPassword")]
-    [switch]$SamePasswordForAll
+    [switch]$SamePasswordForAll,
+
+    $ForcePasswordChange = $true
 )
 
 # Import the CSV file
@@ -74,7 +76,7 @@ elseif (-not $Password) {
 
 $PasswordProfile = @{
     Password                      = $Password
-    ForceChangePasswordNextSignIn = $true
+    ForceChangePasswordNextSignIn = $ForcePasswordChange
 }
 
 # Initialize an array to store user creation results
