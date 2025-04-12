@@ -1,4 +1,4 @@
-UserPrincipalName,FirstName,LastName,DisplayName,UsageLocation,MailNickname
-ClaudeL@contoso.onmicrosoft.com,Claude,Loiselle,Claude Loiselle,US,claudel
-LynneB@contoso.onmicrosoft.com,Lynne,Baxter,Lynne Baxter,US,lynneb
-ShawnM@contoso.onmicrosoft.com,Shawn,Melendez,Shawn Melendez,US,shawnm
+UserPrincipalName,FirstName,LastName,DisplayName,UsageLocation,MailNickname,Password
+ClaudeL@ithero.work.gd,Claude,Loiselle,Claude Loiselle,US,claudel
+LynneB@ithero.work.gd,Lynne,Baxter,Lynne Baxter,US,lynneb
+ShawnM@ithero.work.gd,Shawn,Melendez,Shawn Melendez,US,shawnm
