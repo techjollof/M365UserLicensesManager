@@ -25,83 +25,83 @@
     Requires Microsoft Graph PowerShell module.
     Run Connect-MgGraph first with appropriate permissions (User.Read.All minimum).
 #>
-function Get-MgAccountLicenseStatus {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $false)]
-        [bool]$ExportToCSV = $true,
 
-        [parameter(Mandatory = $false)]
-        [switch]$DisplayInConsole,
+[CmdletBinding()]
+param (
+    [Parameter(Mandatory = $false)]
+    [bool]$ExportToCSV = $true,
+
+    [parameter(Mandatory = $false)]
+    [switch]$DisplayInConsole,
         
-        [Parameter(Mandatory = $false)]
-        [string]$OutputPath = "$Home\Downloads"
-    )
+    [Parameter(Mandatory = $false)]
+    [string]$OutputPath = "$Home\Downloads"
+)
 
-    # Check if Microsoft Graph module is available
-    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph)) {
-        Write-Error "Microsoft Graph PowerShell module is not installed. Please install it first using: Install-Module Microsoft.Graph -Scope CurrentUser -Force"
+# Check if Microsoft Graph module is available
+if (-not (Get-Module -ListAvailable -Name Microsoft.Graph)) {
+    Write-Error "Microsoft Graph PowerShell module is not installed. Please install it first using: Install-Module Microsoft.Graph -Scope CurrentUser -Force"
+    return
+}
+
+# Check if we're connected to Microsoft Graph
+try {
+    $context = Get-MgContext
+    if (-not $context) {
+        Write-Error "Not connected to Microsoft Graph. Please run Connect-MgGraph first with appropriate permissions."
         return
     }
+}
+catch {
+    Write-Error "Error checking Microsoft Graph connection. Please ensure you're connected with Connect-MgGraph -Scopes User.Read.All, Organization.Read.All"
+    return
+}
+    
 
-    # Check if we're connected to Microsoft Graph
-    try {
-        $context = Get-MgContext
-        if (-not $context) {
-            Write-Error "Not connected to Microsoft Graph. Please run Connect-MgGraph first with appropriate permissions."
-            return
-        }
-    }
-    catch {
-        Write-Error "Error checking Microsoft Graph connection. Please ensure you're connected with Connect-MgGraph -Scopes User.Read.All, Organization.Read.All"
-        return
-    }
-
-    try {
-        Write-Verbose "Retrieving all users..."
-        $allUsers = Get-MgUser -ConsistencyLevel eventual -All -Property Id, DisplayName, UserPrincipalName, AssignedLicenses, LicenseAssignmentStates, LicenseDetails, AssignedPlans
+try {
+    Write-Verbose "Retrieving all users..."
+    $allUsers = Get-MgUser -ConsistencyLevel eventual -All -Property Id, DisplayName, UserPrincipalName, AssignedLicenses, LicenseAssignmentStates, LicenseDetails, AssignedPlans
         
-        $licensedUsers = $allUsers | Where-Object { $_.AssignedLicenses.Count -gt 0 }
-        $unlicensedUsers = $allUsers | Where-Object { $_.AssignedLicenses.Count -eq 0 }
+    $licensedUsers = $allUsers | Where-Object { $_.AssignedLicenses.Count -gt 0 }
+    $unlicensedUsers = $allUsers | Where-Object { $_.AssignedLicenses.Count -eq 0 }
 
-        $licensedOutput = $licensedUsers | Select-Object DisplayName, UserPrincipalName, AssignedLicenses, AssignedPlans, AssignedLicenses, @{Name = "LicenseCount"; Expression = { $_.AssignedLicenses.Count } }
-        $unlicensedOutput = $unlicensedUsers | Select-Object DisplayName, UserPrincipalName
+    $licensedOutput = $licensedUsers | Select-Object DisplayName, UserPrincipalName, AssignedLicenses, AssignedPlans, AssignedLicenses, @{Name = "LicenseCount"; Expression = { $_.AssignedLicenses.Count } }
+    $unlicensedOutput = $unlicensedUsers | Select-Object DisplayName, UserPrincipalName
 
-        if ($DisplayInConsole) {
-            Write-Host "`nLicensed Users ($($licensedUsers.Count)):" -ForegroundColor Green
-            $licensedOutput | Format-Table
+    if ($DisplayInConsole) {
+        Write-Host "`nLicensed Users ($($licensedUsers.Count)):" -ForegroundColor Green
+        $licensedOutput | Format-Table
 
-            Write-Host "`nUnlicensed Users ($($unlicensedUsers.Count)):" -ForegroundColor Yellow
-            $unlicensedOutput | Format-Table
-        }
-        else {
-            Write-Host "`nLicensed Users ($($licensedUsers.Count)):" -ForegroundColor Green
-            Write-Host "`nUnlicensed Users ($($unlicensedUsers.Count)):" -ForegroundColor Yellow
-        }
-
-        if ($ExportToCSV) {
-            if (-not (Test-Path -Path $OutputPath)) {
-                New-Item -ItemType Directory -Path $OutputPath | Out-Null
-            }
-
-            $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-            $licensedPath = Join-Path -Path $OutputPath -ChildPath "LicensedUsers_$timestamp.csv"
-            $unlicensedPath = Join-Path -Path $OutputPath -ChildPath "UnlicensedUsers_$timestamp.csv"
-
-            $licensedOutput | Export-Csv -Path $licensedPath -NoTypeInformation -Encoding UTF8
-            $unlicensedOutput | Export-Csv -Path $unlicensedPath -NoTypeInformation -Encoding UTF8
-
-            Write-Host "`nExported licensed users to: $licensedPath" -ForegroundColor Cyan
-            Write-Host "Exported unlicensed users to: $unlicensedPath" -ForegroundColor Cyan
-        }
-
-        # Optional: return results
-        return [PSCustomObject]@{
-            LicensedUsers   = $licensedOutput
-            UnlicensedUsers = $unlicensedOutput
-        }
+        Write-Host "`nUnlicensed Users ($($unlicensedUsers.Count)):" -ForegroundColor Yellow
+        $unlicensedOutput | Format-Table
     }
-    catch {
-        Write-Error "An error occurred while retrieving user data: $_"
+    else {
+        Write-Host "`nLicensed Users ($($licensedUsers.Count)):" -ForegroundColor Green
+        Write-Host "`nUnlicensed Users ($($unlicensedUsers.Count)):" -ForegroundColor Yellow
     }
+
+    if ($ExportToCSV) {
+        if (-not (Test-Path -Path $OutputPath)) {
+            New-Item -ItemType Directory -Path $OutputPath | Out-Null
+        }
+
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $licensedPath = Join-Path -Path $OutputPath -ChildPath "LicensedUsers_$timestamp.csv"
+        $unlicensedPath = Join-Path -Path $OutputPath -ChildPath "UnlicensedUsers_$timestamp.csv"
+
+        $licensedOutput | Export-Csv -Path $licensedPath -NoTypeInformation -Encoding UTF8
+        $unlicensedOutput | Export-Csv -Path $unlicensedPath -NoTypeInformation -Encoding UTF8
+
+        Write-Host "`nExported licensed users to: $licensedPath" -ForegroundColor Cyan
+        Write-Host "Exported unlicensed users to: $unlicensedPath" -ForegroundColor Cyan
+    }
+
+    # Optional: return results
+    return [PSCustomObject]@{
+        LicensedUsers   = $licensedOutput
+        UnlicensedUsers = $unlicensedOutput
+    }
+}
+catch {
+    Write-Error "An error occurred while retrieving user data: $_"
 }

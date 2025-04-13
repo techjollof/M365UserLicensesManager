@@ -1,4 +1,5 @@
 UserPrincipalName,FirstName,LastName,DisplayName,UsageLocation,MailNickname,Password
-ClaudeL@ithero.work.gd,Claude,Loiselle,Claude Loiselle,US,claudel
-LynneB@ithero.work.gd,Lynne,Baxter,Lynne Baxter,US,lynneb
-ShawnM@ithero.work.gd,Shawn,Melendez,Shawn Melendez,US,shawnm
+ClaudeL@contoso.dev,Claude,Loiselle,Claude Loiselle,US,claudel
+LynneB@contoso.dev,Lynne,Baxter,Lynne Baxter,US,lynneb
+ShawnM@contoso,Shawn,Melendez,Shawn Melendez,US,shawnm
+SkyM@contoso.dev,Sky,Melendez, ,US,shawnm

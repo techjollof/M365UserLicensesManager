@@ -19,14 +19,14 @@
 .PARAMETER DisabledPlans
     Optional. Array of service plan GUIDs to disable in the assigned license (e.g., Exchange, Yammer, etc.).
 
-.PARAMETER UseLicensesPicker
+.PARAMETER SelectLicense
     If set, allows you to pick SKUs interactively from a grid.
 
 .EXAMPLE
     Set-MgUserLicenseUpgrade -UserIds "user@domain.com" -LicenseToRemove "SPE_E3" -LicenseToAdd "SPE_E5"
 
 .EXAMPLE
-    Set-MgUserLicenseUpgrade -UserIds ".\users.csv" -UseLicensesPicker
+    Set-MgUserLicenseUpgrade -UserIds ".\users.csv" -SelectLicense
 
 .EXAMPLE
     Set-MgUserLicenseUpgrade -UserIds "user@domain.com" -LicenseToRemove "SPE_E3" -LicenseToAdd "SPE_E5" -DisabledPlans "12345678-aaaa-bbbb-cccc-1234567890ab"
@@ -37,31 +37,37 @@
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
-    [Parameter(Mandatory = $true, HelpMessage = "This can be a UPN or a CSV file with UPNs", Position = 0)]
-    [Alias('UserPrincipalName', 'UPNs', 'UserId')]
+    # User Input Parameters
+    [Parameter(Mandatory = $true, Position = 0)]
+    [Alias('UserPrincipalName', 'UPNs', 'UserId', 'UserSource')]
     [string[]]$UserIds,
     
-    [Parameter(Mandatory, ParameterSetName = 'PreDefine')]
-    [Alias('RemoveSku', 'OldLicense', 'CSku')]
+    # License Management Parameters
+    [Parameter(Mandatory, ParameterSetName = 'ManualSelection')]
+    [Alias('RemoveSku', 'OldLicense', 'CSku', 'CurrentLicense')]
     [string]$LicenseToRemove,
     
-    [Parameter(Mandatory, ParameterSetName = 'PreDefine')]
-    [Alias('AddSku', 'NewLicense', 'NSku')]
+    [Parameter(Mandatory, ParameterSetName = 'ManualSelection')]
+    [Alias('AddSku', 'NewLicense', 'NSku', 'TargetLicense')]
     [string]$LicenseToAdd,
     
-    [Parameter(ParameterSetName = 'PreDefine')]
-    [Alias('DisabledService', 'RemovePlans', 'RemoveServices')]
+    [Parameter(ParameterSetName = 'ManualSelection')]
+    [Alias('DisabledService', 'RemovePlans', 'RemoveServices', 'DisabledServicePlans')]
     [string[]]$DisabledPlans,
     
-    [Parameter(Mandatory = $false, ParameterSetName = 'LicenseSelection')]
-    [switch]$UseLicensesPicker,
+    # Interactive Mode Parameters
+    [Parameter(Mandatory, ParameterSetName = 'InteractiveMode')]
+    [Alias('UseLicensesPicker', 'InteractiveLicenseSelect')]
+    [switch]$SelectLicense,
     
-    [Parameter(Mandatory = $false, ParameterSetName = 'LicenseSelection')]
-    [switch]$PickPlansToDisable,
+    [Parameter(ParameterSetName = 'InteractiveMode')]
+    [Alias('PickPlansToDisable', 'InteractivePlanSelect')]
+    [switch]$SelectDisabledPlans,
     
-    [Parameter(Mandatory = $false)]
+    # Advanced Options
+    [Parameter()]
+    [Alias('PreservePlanState')]
     [switch]$KeepExistingPlanState
-        
 )
     
     
@@ -159,7 +165,7 @@ try {
     Write-Verbose "Getting available subscribed SKUs..."
     $skus = Get-MgSubscribedSku -All
     
-    if ($UseLicensesPicker) {
+    if ($SelectLicense) {
         Write-Verbose "Auto license selection is enabled. Selecting SKUs via GUI..."
         $fromSkus = $skus | Out-GridView -Title "Select SKUs to REMOVE (Current)" -PassThru
         $toSkus = $skus | Out-GridView -Title "Select SKUs to ASSIGN (New)" -PassThru
@@ -183,8 +189,8 @@ try {
     # Build arrays for add and remove operations
     $fromLicenseIds = $fromSkus | ForEach-Object { $_.SkuId }
     # Build addLicenses array with disabled plans only if present in the SKU
-    if ($PickPlansToDisable -or $DisabledPlans) {
-        if ($PickPlansToDisable) {
+    if ($SelectDisabledPlans -or $DisabledPlans) {
+        if ($SelectDisabledPlans) {
             $allPlans = $toSkus.ServicePlans | Where-Object { $_.AppliesTo -eq "user" } | Sort-Object ServicePlanName -Unique
             $selectedPlans = $allPlans | Out-GridView -Title "Select service plans to DISABLE" -PassThru
             write-Log "Selected plans: $($selectedPlans.ServicePlanName -join ', ')" -LogPath $LogPath -Level "INFO"

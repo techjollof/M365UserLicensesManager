@@ -1,46 +1,131 @@
+<#
+.SYNOPSIS
+    Bulk creates Microsoft 365 users based on a CSV input file with optional license assignment and password handling.
+
+.DESCRIPTION
+    This script creates Microsoft 365 users using Microsoft Graph API based on data in a CSV file.
+    It supports both static and auto-generated passwords, interactive or direct license assignment,
+    and the optional disabling of service plans. Results and logs are exported to user-defined paths.
+    Passwords can be generated per user or applied uniformly across all accounts.
+
+.PARAMETER UserIdsCsv
+    Specifies the path to the CSV file containing user data. Required columns: UserPrincipalName, DisplayName, MailNickname.
+
+.PARAMETER ResultExportFilePath
+    Specifies the path and base filename where the user creation results will be exported.
+    A timestamp will be appended automatically to the filename.
+
+.PARAMETER AssignLicenses
+    Specifies the license SKU(s) to assign directly to the user(s). Mutually exclusive with -PromptForAssignedLicenseSkus.
+
+.PARAMETER SelectLicenses
+    Prompts the user to select license SKU(s) interactively. Mutually exclusive with -AssignedLicenseSkus.
+
+.PARAMETER DisablePlans
+    Specifies one or more service plans to be disabled during license assignment. Mutually exclusive with -PromptForDisableLicensePlans.
+
+.PARAMETER SelectDisabledPlans
+    Prompts the user to select service plans to disable interactively. Mutually exclusive with -DisableLicensePlans.
+
+.PARAMETER Password
+    Specifies a static password to assign to all users. Mutually exclusive with -AutoGeneratePassword.
+
+.PARAMETER AutoGeneratePassword
+    Automatically generates random passwords for users. Mutually exclusive with -Password.
+
+.PARAMETER AutoPasswordLength
+    Specifies the length of auto-generated passwords. Must be between 10 and 20. Default is 12.
+
+.PARAMETER SamePasswordForAll
+    When used with -AutoGeneratePassword, applies the same password to all users instead of generating unique ones.
+
+.PARAMETER ForcePasswordChange
+    If set to $true, users will be prompted to change their password upon first login. Default is true.
+
+.PARAMETER LogFilePath
+    Specifies the full path to the log file for this script run. If not specified, a default log file is created.
+
+.EXAMPLE
+    .\Provision-MgUserAccount.ps1 -UserCsvFilePath ".\Users.csv" -Password "SecureP@ssw0rd" -AssignedLicenseSkus "ENTERPRISEPACK"
+    Creates users with a static password and directly assigns the specified license.
+
+.EXAMPLE
+    .\Provision-MgUserAccount.ps1 -UserCsvFilePath ".\users.csv" -AutoGeneratePassword -PromptForAssignedLicenseSkus -PromptForDisableLicensePlans -SamePasswordForAll
+    Generates one password for all users and prompts interactively for license and plan choices.
+
+.EXAMPLE
+    .\Provision-MgUserAccount.ps1 -UserCsvFilePath "C:\Users.csv" -AutoGeneratePassword
+    Creates users using unique, auto-generated passwords with no license assignment.
+
+.EXAMPLE
+    .\Provision-MgUserAccount.ps1 -UserCsvFilePath "C:\Users.csv" -AssignedLicenseSkus "ENTERPRISEPACK" -DisableLicensePlans "EXCHANGE_S_ENTERPRISE"
+    Assigns a license and disables the Exchange Online service plan.
+
+.EXAMPLE
+    .\Provision-MgUserAccount.ps1 -UserCsvFilePath "C:\Users.csv" -PromptForAssignedLicenseSkus -PromptForDisableLicensePlans
+    Opens a GUI to select licenses and plans to disable.
+
+.INPUTS
+    CSV file input with user data.
+
+.OUTPUTS
+    CSV file containing success/failure details per user. Optional log file output.
+
+.NOTES
+    Ensure the Microsoft Graph module is installed and the script is authenticated to Microsoft 365 with required permissions.
+
+.FUNCTIONALITY
+    Bulk user provisioning and license assignment in Microsoft 365
+#>
 
 # Parameters for the script
 [CmdletBinding(DefaultParameterSetName = 'ManualPassword', SupportsShouldProcess = $true)]
 param (
+    # **User Input Parameters**
     [Parameter(Mandatory, Position = 0)]
-    [string]$UserCsvFilePath,
+    [Alias('UserIds', 'UserSource')]
+    [ValidateScript({Test-Path $_ -PathType Leaf})]
+    [string]$UserIdsCsv,
 
     [Parameter(Position = 1)]
     [string]$ResultExportFilePath,
 
-    # **License Assignment Parameters (Mutually Exclusive)**
+    # **License Assignment (Mutually Exclusive)**
     [Parameter(ParameterSetName = "DirectLicense")]
-    [string[]]$AssignedLicenseSkus,
+    [Alias('LicenseSkus')]
+    [string[]]$AssignLicenses,
 
     [Parameter(ParameterSetName = "PromptForLicense")]
-    [switch]$PromptForAssignedLicenseSkus,
+    [Alias('PromptForAssignedLicenseSkus')]
+    [switch]$SelectLicenses,
 
-    # **License Plan Disabling Parameters (Mutually Exclusive)**
+    # **Service Plan Management**
     [Parameter(ParameterSetName = "DirectLicense")]
     [Parameter(ParameterSetName = "DirectDisablePlans")]
-    [string[]]$DisableLicensePlans,
+    [Alias('DisableLicensePlans')]
+    [string[]]$DisablePlans,
 
     [Parameter(ParameterSetName = "PromptForLicense")]
     [Parameter(ParameterSetName = "PromptForDisablePlans")]
-    [switch]$PromptForDisableLicensePlans,
+    [Alias('PromptForDisableLicensePlans')]
+    [switch]$SelectDisabledPlans,
 
-    # **Password Parameters (Mutually Exclusive Sets)**
-    [Parameter(ParameterSetName = "DirectLicense")]
-    [Parameter(ParameterSetName = "PromptForLicense")]
+    # **Password Configuration (Mutually Exclusive)**
+    [Parameter(ParameterSetName = "ManualPassword")]
     [ValidateNotNullOrEmpty()]
     [string]$Password,
 
-    [Parameter(ParameterSetName = "DirectLicense")]
-    [Parameter(ParameterSetName = "PromptForLicense")]
+    [Parameter(ParameterSetName = "AutoPassword")]
     [switch]$AutoGeneratePassword,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "AutoPassword")]
     [ValidateRange(10, 20)]
-    [int]$AutoPasswordLength = 12,
+    [int]$PasswordLength = 12,
 
+    [Parameter(ParameterSetName = "AutoPassword")]
     [switch]$SamePasswordForAll,
 
-    # Password change switch (available in all parameter sets)
+    # **Common Options**
     [Parameter()]
     [bool]$ForcePasswordChange = $true,
 
@@ -78,7 +163,7 @@ function Write-Log {
 #################### Parameter and Path Validation
 
 # Validate mutual exclusivity (though parameter sets should prevent this)
-if ($PSBoundParameters.ContainsKey('AssignedLicenseSkus') -and $PromptForAssignedLicenseSkus) {
+if ($PSBoundParameters.ContainsKey('AssignLicenses') -and $SelectLicenses) {
     Write-Log "Parameters -AssignedLicenseSkus and -PromptForAssignedLicenseSkus are mutually exclusive and cannot be used together." -Level "ERROR"
     throw "Parameters -AssignedLicenseSkus and -PromptForAssignedLicenseSkus are mutually exclusive and cannot be used together."
 }
@@ -89,8 +174,8 @@ if ($PSBoundParameters.ContainsKey('Password') -and $AutoGeneratePassword) {
 }
 
 # Validate if the CSV file exists, import it, and check for required columns
-if (-not (Test-Path $UserCsvFilePath)) {
-    Write-Log "The specified CSV file '$UserCsvFilePath' does not exist." "ERROR"
+if (-not (Test-Path $UserIdsCsv)) {
+    Write-Log "The specified CSV file '$UserIdsCsv' does not exist." "ERROR"
     return
 }
 
@@ -232,10 +317,10 @@ $PasswordProfile = @{
 Write-Host "`nStep 1: Starting import of the specified CSV file containing user account data..." -ForegroundColor Cyan
 
 
-$users = Import-Csv -Path $UserCsvFilePath
+$users = Import-Csv -Path $UserIdsCsv
 
 if ($users.Count -eq 0) {
-    Write-Log "The CSV file '$UserCsvFilePath' provided is empty." "ERROR"
+    Write-Log "The CSV file '$UserIdsCsv' provided is empty." "ERROR"
     return
 }
 
@@ -323,15 +408,15 @@ Write-Host "`nStep 3: Retrieving available Microsoft 365 licenses and evaluating
 
 
 # Handle License Assignment (Mutually Exclusive)
-if ($AssignedLicenseSkus) {
-    Write-Log "AssignedLicenseSkus: $AssignedLicenseSkus"
-    $AssignedSku = Get-MgSubscribedSku -All | Where-Object { $_.SkuPartNumber -in $AssignedLicenseSkus -or $_.SkuId -in $AssignedLicenseSkus }
+if ($AssignLicenses) {
+    Write-Log "AssignLicenses: $AssignLicenses"
+    $AssignedSku = Get-MgSubscribedSku -All | Where-Object { $_.SkuPartNumber -in $AssignLicenses -or $_.SkuId -in $AssignLicenses }
 
     if (-not $AssignedSku) {
         Write-Warning "No matching SKUs found. User will be created without licenses."
     }
 }
-elseif ($PromptForAssignedLicenseSkus) {
+elseif ($SelectLicenses) {
     Write-Log "Please select SKUs from the list below."
     $AssignedSku = Get-MgSubscribedSku -All | Where-Object { ($_.PrepaidUnits.Enabled -ne $_.ConsumedUnits) } | Out-GridView -PassThru -Title "Select License SKUs to Assign"
 
@@ -341,10 +426,10 @@ elseif ($PromptForAssignedLicenseSkus) {
 }
 
 # Handle Disabled Plans
-if ($PromptForDisableLicensePlans -and $AssignedSku) {
+if ($SelectDisabledPlans -and $AssignedSku) {
     Write-Log "Please select service plans to disable from the list below."
     $SelectedDisableLicensePlans = $AssignedSku.ServicePlans | Where-Object { $_.AppliesTo -eq "User" -and $_.ProvisioningStatus -eq "Success" } | Out-GridView -PassThru -Title "Select Service Plans to Disable"
-    [Object]$DisableLicensePlans = $SelectedDisableLicensePlans | Select-Object ServicePlanId, ServicePlanName
+    [Object]$DisablePlans = $SelectedDisableLicensePlans | Select-Object ServicePlanId, ServicePlanName
 }
 
 # Build License
@@ -352,16 +437,16 @@ if ($AssignedSku) {
     foreach ($sku in $AssignedSku) {
         $licenseAssignment = @{ skuId = $sku.SkuId }
 
-        if ($DisableLicensePlans) {
+        if ($DisablePlans) {
             # Log the processing of service plans for the current SKU
             Write-Log "Processing the plans for SKU: $($sku.SkuPartNumber)" "WARN"
             
             # Handle disabling service plans based on the prompt flag
-            $disabledPlans = if ($PromptForDisableLicensePlans) {
-                $sku.ServicePlans | Where-Object { $_.ServicePlanId -in $DisableLicensePlans.ServicePlanId -or $_.ServicePlanName -in $DisableLicensePlans.ServicePlanName }
+            $disabledPlans = if ($SelectDisabledPlans) {
+                $sku.ServicePlans | Where-Object { $_.ServicePlanId -in $DisablePlans.ServicePlanId -or $_.ServicePlanName -in $DisablePlans.ServicePlanName }
             }
             else {
-                $sku.ServicePlans | Where-Object { $_.ServicePlanId -in $DisableLicensePlans -or $_.ServicePlanName -in $DisableLicensePlans }
+                $sku.ServicePlans | Where-Object { $_.ServicePlanId -in $DisablePlans -or $_.ServicePlanName -in $DisablePlans }
             }
 
             if ($disabledPlans) {
@@ -439,10 +524,10 @@ foreach ($user in $validProcessedUsers) {
                     Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/users/$($newUser.Id)/assignLicense" -Body $licenseParams -ContentType "application/json" | Out-Null
                 }
 
-                $result['AssignedLicenseSkus'] = $AssignedSku.SkuPartNumber -join ','
+                $result['AssignLicenses'] = $AssignedSku.SkuPartNumber -join ','
                 $result['AssignedLicenseId'] = $AssignedSku.SkuId -join ','
 
-                if ($DisableLicensePlans) {
+                if ($DisablePlans) {
                     $result['DisabledLicensePlans'] = $disabledPlans.ServicePlanName -join ','
                 }
 
